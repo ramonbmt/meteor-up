@@ -1,10 +1,10 @@
 {
-  "name": "mup",
+  "name": "bmtmup",
   "version": "1.2.8",
   "description": "Production Quality Meteor Deployments",
   "main": "lib/index.js",
   "bin": {
-    "mup": "./index.js"
+    "bmtmup": "./index.js"
   },
   "scripts": {
     "prepublish": "npm run build -s",
