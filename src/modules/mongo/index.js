@@ -2,6 +2,7 @@ import { getDockerLogs, resolvePath, runTaskList } from '../utils';
 
 import debug from 'debug';
 import nodemiral from 'nodemiral';
+import sh from 'shelljs';
 
 const log = debug('mup:module:mongo');
 
@@ -36,6 +37,8 @@ export function setup(api) {
 
   const mongoSessions = api.getSessions(['mongo']);
   const meteorSessions = api.getSessions(['meteor']);
+  const config = api.getConfig().mongo;
+  let oplog = !config.oplog ? false : config.oplog;
 
   if (meteorSessions.length !== 1) {
     console.log(
@@ -55,10 +58,17 @@ export function setup(api) {
     script: resolvePath(__dirname, 'assets/mongo-setup.sh')
   });
 
-  list.copy('Copying mongodb.conf', {
-    src: resolvePath(__dirname, 'assets/mongodb.conf'),
-    dest: '/opt/mongodb/mongodb.conf'
-  });
+  if (oplog) {
+    list.copy('Copying mongodb.conf', {
+      src: resolvePath(__dirname, 'assets/mongodbReplica.conf'),
+      dest: '/opt/mongodb/mongodb.conf'
+    });
+  } else {
+    list.copy('Copying mongodb.conf', {
+      src: resolvePath(__dirname, 'assets/mongodb.conf'),
+      dest: '/opt/mongodb/mongodb.conf'
+    });
+  }
 
   const sessions = api.getSessions(['mongo']);
 
@@ -72,6 +82,7 @@ export function realStart(api){
   const meteorSessions = api.getSessions(['meteor']);
   const config = api.getConfig().mongo;
   let ipwhitelist = !config.ipwhitelist ? '' : config.ipwhitelist;
+  let oplog = !config.oplog ? false : config.oplog;
 
   if (
     meteorSessions.length !== 1 ||
@@ -80,16 +91,20 @@ export function realStart(api){
     log('Skipping mongodb start. Incompatible config');
     return;
   }
-
   const list = nodemiral.taskList('Start Mongo');
-
   list.executeScript('Start Mongo', {
     script: resolvePath(__dirname, 'assets/mongo-start.sh'),
     vars: {
       mongoVersion: config.version || '3.4.1',
-      ipwhitelist:ipwhitelist
+      ipwhitelist: ipwhitelist
     }
   });
+  if (oplog) {
+    list.executeScript('Start Replica', {
+      script: resolvePath(__dirname, 'assets/mongoReplica-start.sh'),
+      vars: {}
+    });
+  }
 
   const sessions = api.getSessions(['mongo']);
   return runTaskList(list, sessions, { verbose: api.getVerbose() });
@@ -120,7 +135,7 @@ export function stop(api) {
 }
 
 export function whitelist(api){
-  log('exec => mup whitelist blkmkt');
+  log('exec => mup mongo whitelist');
   const config = api.getConfig().mongo;
   const configMeteor = api.getConfig().meteor;
   if (!config) {
@@ -151,4 +166,27 @@ export function whitelist(api){
 
   const sessions = api.getSessions(['mongo']);
   return runTaskList(list, sessions, { verbose: api.getVerbose() });
+}
+
+export function backup(api) {
+  log('exec => mup mongo whitelist');
+  const config = api.getConfig().mongo;
+  const configMeteor = api.getConfig().meteor;
+  if (!config) {
+    console.error('error: no configs found for meteor');
+    process.exit(1);
+  }
+  const list = nodemiral.taskList('Backup Mongo');
+  list.executeScript('Backup Mongo', {
+    script: resolvePath(__dirname, 'assets/backup.sh'),
+    vars: {
+      name: configMeteor.name
+    }
+  });
+  
+
+  const sessions = api.getSessions(['mongo']);
+  let result = runTaskList(list, sessions, { verbose: api.getVerbose() });
+  sh.exec('scp -r root@162.243.187.18:dump dump');
+  return result;
 }
